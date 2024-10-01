@@ -1,24 +1,41 @@
 from PIL import Image
-import os
+from pathlib import Path
+import concurrent.futures
+import sys
 
-SOURCE_DIR = ""
-DEST_DIR = os.path.join(SOURCE_DIR, "Optimized Images")
-
-if not os.path.exists(DEST_DIR):
-    os.makedirs(DEST_DIR)
-
-def optimize_image(file_path, save_path):
-    with Image.open(file_path) as img:
-        img.save(save_path, "JPEG", optimize=True)
+def optimize_image(source_path, dest_path):
+    try:
+        with Image.open(source_path) as img:
+            exif = img.info['exif'] if 'exif' in img.info else None
+            
+            # Optimize and save
+            img.save(dest_path, "JPEG", optimize=True, quality=85, exif=exif)
+        return f"Optimized: {source_path.name}"
+    except Exception as e:
+        return f"Error processing {source_path.name}: {str(e)}"
 
 def main():
-    for root, dirs, files in os.walk(SOURCE_DIR):
-        for file in files:
-            if file.endswith(".jpg") or file.endswith(".jpeg"):
-                dest_file_path = os.path.join(DEST_DIR, file)
-                source_file_path = os.path.join(root, file)
-                optimize_image(source_file_path, dest_file_path)
-                print(f"Optimized and saved {file} to 'Optimized Images' folder")
+    SOURCE_DIR = Path(sys.argv[1]) if len(sys.argv) > 1 else Path.cwd()
+    DEST_DIR = SOURCE_DIR / "Optimized Images"
+    DEST_DIR.mkdir(exist_ok=True)
+
+    image_files = [f for f in SOURCE_DIR.rglob("*") if f.suffix.lower() in ('.jpg', '.jpeg')]
+
+    if not image_files:
+        print("No JPEG images found in the specified directory.")
+        return
+
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        futures = []
+        for source_path in image_files:
+            dest_path = DEST_DIR / source_path.relative_to(SOURCE_DIR)
+            dest_path.parent.mkdir(parents=True, exist_ok=True)
+            futures.append(executor.submit(optimize_image, source_path, dest_path))
+
+        for future in concurrent.futures.as_completed(futures):
+            print(future.result())
+
+    print("Optimization process complete.")
 
 if __name__ == "__main__":
     main()
